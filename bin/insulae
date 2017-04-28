@@ -1,0 +1,3 @@
+#!/usr/bin/lua
+-- insulae command line runner --
+require 'insulae.runner'()
