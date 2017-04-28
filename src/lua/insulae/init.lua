@@ -25,6 +25,11 @@ local Insulae = {
         url     = 'https://www.lua.org/ftp/lua-5.3.4.tar.gz',
         sha256  = 'f681aa518233bc407e23acf0f5887c884f17436f000d453b2491a9f11a52400c'
       }
+    },
+    luarocks = {
+      version = '2.4.2',
+      url = 'https://luarocks.github.io/luarocks/releases/luarocks-2.4.2.tar.gz',
+      sha256 = '0e1ec34583e1b265e0fbafb64c8bd348705ad403fe85967fd05d3a659f74d2e5'
     }
   }
 }
