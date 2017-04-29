@@ -1,15 +1,17 @@
 ------------
--- insulae.init
--- main insulae module
--- module: insulae
+-- insulae.config
+-- insulae config module
+-- module: insulae.config
 -- author: AitorATuin
 -- license: GPL3
 
-local Insulae = {
+local Config = {
   VERSION  = 0.1,
   AUTHOR   = 'AitorATuin'
+
   packages = {
     lua = {
+      default = '51',
       ['51'] = {
         version = '5.1.5',
         url     = 'https://www.lua.org/ftp/lua-5.3.4.tar.gz',
@@ -34,4 +36,16 @@ local Insulae = {
   }
 }
 
-return Insulae
+function Config.default_lua_version()
+  return Config.packages.lua[Config.packages.lua.default]
+end
+
+function Config.get_lua_version(version)
+  return Config.packages.lua[version]
+end
+
+function Config.default_luarocks_version()
+  return Config.packages.luarocks
+end
+
+return Config
