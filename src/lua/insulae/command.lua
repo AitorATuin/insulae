@@ -37,6 +37,9 @@ local function fork_command(argt, stdin, stdout, stderr)
     -- child process here, spawn a new command!
     unistd.dup2(stdout, unistd.STDOUT_FILENO)
     unistd.dup2(stderr, unistd.STDERR_FILENO)
+    if stdin then
+      unistd.dup2(stdin, unistd.STDIN_FILENO)
+    end
     local exit_code, reason = posix.spawn(argt)
     os.exit(exit_code)
   else
@@ -105,19 +108,25 @@ function Command.command(cmd)
   local command_wrapper = function(parameters, stdin)
     local stdout_r, stdout_w = posix.pipe()
     local stderr_r, stderr_w = posix.pipe()
+    local stdin_r, stdin_w = nil
+    if stdin then
+      stdin_r, stdin_w = posix.pipe()
+      unistd.write(stdin_w, stdin)
+      close_fds(stdin_w)
+    end
     local argt = prepare_command(cmd)
-    local child_pid, errmsg = fork_command(argt, nil, stdout_w, stderr_w)
+    local child_pid, errmsg = fork_command(argt, stdin_r, stdout_w, stderr_w)
     if not child_pid then 
       -- Error forking child!
-      close_fds(stderr_r, stderr_w, stdout_r, stdout_w)
+      close_fds(stderr_r, stderr_w, stdout_r, stdout_w, stdin_r, stdin_w)
       return nil, 'Error forking command!'
     elseif child_pid ~= 0 then
       -- Child is running!
-      close_fds(stdout_w, stderr_w)
+      close_fds(stdout_w, stderr_w, stdin_r)
       local _, reason, exit_code = sys_wait.wait(child_pid)
       local output_data = read_data(stdout_r)
       local err_data = read_data(stderr_r)
-      close_fds(stdout_r, stderr_w)
+      close_fds(stdout_r, stderr_r)
       return output_data, err_data, exit_code
     end
   end
@@ -142,12 +151,14 @@ end
 
 function Command.with_stdin(self, stdin)
   self.stdin = stdin
+  return self
 end
 
-function Command.pipe(self, command)
-  error 'No implemented'
+function Command.pipe(self, command, opts)
+  local with_stderr = opts.with_stdterr or true
+  local with_stdout = opts.with_stdout or true
   local piped_command = Command.fn(function (params)
-    local result = self:prepare(result):run(params)
+    local result = self:run(params)
     return command:prepare(result):run(params)
   end)
 
