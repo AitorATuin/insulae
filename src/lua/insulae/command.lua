@@ -127,7 +127,11 @@ function Command.command(cmd)
       local output_data = read_data(stdout_r)
       local err_data = read_data(stderr_r)
       close_fds(stdout_r, stderr_r)
-      return output_data, err_data, exit_code
+      return {
+        stdout = output_data,
+        stderr = err_data,
+        exit_code = exit_code
+      }
     end
   end
   return Command.fn(command_wrapper)
@@ -141,12 +145,7 @@ function Command.fn(command_fn)
 end
 
 function Command.run(self, params)
-  stdout, stderr, exit_code = self.runner(parameter, self.stdin)
-  return {
-    exit_code = exit_code,
-    stdout = stdout,
-    stderr = stderr
-  }
+  return self.runner(parameter, self.stdin)
 end
 
 function Command.with_stdin(self, stdin)
@@ -154,12 +153,17 @@ function Command.with_stdin(self, stdin)
   return self
 end
 
-function Command.pipe(self, command, opts)
+function Command.pipe(self, other, opts)
+  local opts = opts or {}
   local with_stderr = opts.with_stdterr or true
   local with_stdout = opts.with_stdout or true
   local piped_command = Command.fn(function (params)
-    local result = self:run(params)
-    return command:prepare(result):run(params)
+    local result = self:run()
+    if result.exit_code == 0 then
+      return other:with_stdin(result.stdout):run()
+    else
+      return result
+    end
   end)
 
   return piped_command
