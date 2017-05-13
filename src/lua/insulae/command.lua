@@ -9,6 +9,7 @@ local posix = require 'posix'
 local unistd = require 'posix.unistd'
 local sys_wait = require 'posix.sys.wait'
 local sys_stat = require 'posix.sys.stat'
+local printf = string.format
 
 ------------
 -- command
@@ -22,30 +23,6 @@ local Command = {}
 
 Command.__index = Command
 
---- forks the process creating a new child and spawn a new command on it
--- In the child process STDIN, STDOUT and STDERR are duplicated
--- table: argt argument list using posix.unistd.execp format
--- stdin: stdin STDIN fd to use in child process
--- stdout: stdout STDOUT fd to use in child process
--- stderr: stderr STDERR fd to use in child process
--- treturn: ?int|nil child process's pid or nil
--- treturn: ?string error string in case of error
-local function fork_command(argt, stdin, stdout, stderr)
-  local pid, errmsg = unistd.fork() 
-  if not pid then return nil, errmsg end
-  if pid == 0 then
-    -- child process here, spawn a new command!
-    unistd.dup2(stdout, unistd.STDOUT_FILENO)
-    unistd.dup2(stderr, unistd.STDERR_FILENO)
-    if stdin then
-      unistd.dup2(stdin, unistd.STDIN_FILENO)
-    end
-    local exit_code, reason = posix.spawn(argt)
-    os.exit(exit_code)
-  else
-    return pid, errmsg
-  end
-end
 
 --- resolves path for program `binary` using $PATH
 -- treturn: ?string|nil path for an executable program `binary`
@@ -58,12 +35,12 @@ local function find_binary_path(binary)
   local binary_path = nil
   for path in paths:gmatch('[^:]+') do
     local candidate_path = path .. '/' .. binary
-    local lstat = sys_stat.lstat(path)
+    local lstat = sys_stat.lstat(candidate_path)
     if lstat and can_be_executed(lstat.st_mode) then
       return candidate_path
     end
   end
-  return nil
+  return nil, printf('command %s not found', binary)
 end
 
 --- funtion that given a string creates a table with path and arguments ready
@@ -71,14 +48,18 @@ end
 -- treturn: ?table table with the path for command and the arguments for command
 local function prepare_command(command)
   local cmdt = {}
+  local err = nil
   for item in command:gmatch('[^%s]+') do
     cmdt[#cmdt + 1] = item
   end
-  if cmdt[1] then
-    cmdt[1] = find_binary_path(cmdt[1])
-    return cmdt
+  if not cmdt[1] then
+    return nil, 'command not specified!'
   end
-  return nil
+  cmdt[1], err = find_binary_path(cmdt[1])
+  if not cmdt[1] then
+    return nil, err
+  end
+  return cmdt
 end
 
 --- reads all available data for fd
@@ -104,6 +85,35 @@ local function close_fds(...)
   end
 end
 
+--- forks the process creating a new child and spawn a new command on it
+-- In the child process STDIN, STDOUT and STDERR are duplicated
+-- table: argt argument list using posix.unistd.execp format
+-- stdin: stdin STDIN fd to use in child process
+-- stdout: stdout STDOUT fd to use in child process
+-- stderr: stderr STDERR fd to use in child process
+-- treturn: ?int|nil child process's pid or nil
+-- treturn: ?string error string in case of error
+local function fork_command(cmd, stdin, stdout, stderr)
+  local argt, errmsg = prepare_command(cmd)
+  if not argt then
+    return nil, errmsg
+  end
+  local pid, errmsg = unistd.fork() 
+  if not pid then return nil, errmsg end
+  if pid == 0 then
+    -- child process here, spawn a new command!
+    unistd.dup2(stdout, unistd.STDOUT_FILENO)
+    unistd.dup2(stderr, unistd.STDERR_FILENO)
+    if stdin then
+      unistd.dup2(stdin, unistd.STDIN_FILENO)
+    end
+    local exit_code, reason = posix.spawn(argt)
+    os.exit(exit_code)
+  else
+    return pid, errmsg
+  end
+end
+
 function Command.command(cmd)
   local command_wrapper = function(parameters, stdin)
     local stdout_r, stdout_w = posix.pipe()
@@ -114,12 +124,15 @@ function Command.command(cmd)
       unistd.write(stdin_w, stdin)
       close_fds(stdin_w)
     end
-    local argt = prepare_command(cmd)
-    local child_pid, errmsg = fork_command(argt, stdin_r, stdout_w, stderr_w)
+    local child_pid, errmsg = fork_command(cmd, stdin_r, stdout_w, stderr_w)
     if not child_pid then 
       -- Error forking child!
       close_fds(stderr_r, stderr_w, stdout_r, stdout_w, stdin_r, stdin_w)
-      return nil, 'Error forking command!'
+      return {
+        stdout = "",
+        stderr = errmsg,
+        exit_code = 127
+      }
     elseif child_pid ~= 0 then
       -- Child is running!
       close_fds(stdout_w, stderr_w, stdin_r)
