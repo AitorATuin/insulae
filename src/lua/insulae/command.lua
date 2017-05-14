@@ -11,19 +11,6 @@ local sys_wait = require 'posix.sys.wait'
 local sys_stat = require 'posix.sys.stat'
 local printf = string.format
 
-------------
--- command
--- command class wrapping shell commands
--- classmod: command
--- author: AitorATuin
--- license:MIT
-
--- class table
-local Command = {}
-
-Command.__index = Command
-
-
 --- resolves path for program `binary` using $PATH
 -- treturn: ?string|nil path for an executable program `binary`
 local function find_binary_path(binary)
@@ -114,7 +101,22 @@ local function fork_command(cmd, stdin, stdout, stderr)
   end
 end
 
-function Command.command(cmd)
+-- Compares two object metatables
+function eq_mt(obj1, obj2)
+  return getmetatable(obj1) == getmetatable(obj2)
+end
+
+------------
+-- command
+-- command class wrapping shell commands
+-- classmod: command
+-- author: AitorATuin
+-- license: GPL3
+
+-- class table
+local Command = {}
+
+local function wrap_command(cmd)
   local command_wrapper = function(parameters, stdin)
     local stdout_r, stdout_w = posix.pipe()
     local stderr_r, stderr_w = posix.pipe()
@@ -147,18 +149,12 @@ function Command.command(cmd)
       }
     end
   end
-  return Command.fn(command_wrapper)
+  return command_wrapper
 end
 
-function Command.fn(command_fn)
-  local t = {
-    runner = command_fn
-  }
-  return setmetatable(t, Command)
-end
 
 function Command.run(self, params)
-  return self.runner(parameter, self.stdin)
+  return self._runner(parameter, self.stdin)
 end
 
 function Command.with_stdin(self, stdin)
@@ -166,11 +162,12 @@ function Command.with_stdin(self, stdin)
   return self
 end
 
-function Command.pipe(self, other, opts)
-  local opts = opts or {}
-  local with_stderr = opts.with_stdterr or true
-  local with_stdout = opts.with_stdout or true
-  local piped_command = Command.fn(function (params)
+function Command.pipe(self, other)
+  if not eq_mt(self, other) then
+    print("SASS")
+    return nil, 'Only commands can be piped, second argument is not an Command'
+  end
+  local piped_command = Command.new(function (params)
     local result = self:run()
     if result.exit_code == 0 then
       return other:with_stdin(result.stdout):run()
@@ -182,15 +179,44 @@ function Command.pipe(self, other, opts)
   return piped_command
 end
 
+function Command.tostring(self)
+  return printf("Command")
+end
+
 function Command.merge(self, ...)
   error 'No implemented'
   -- TODO: Check that commands are valid Commands
   local commands = {...}
-  local merged_command = Command.fn(function(params)
+  local merged_command = Command.new(function(params)
     --- recursive coroutine gathering all the stdout/stderr from other commands
   end)
 
   return merged_command
 end
 
-return Command
+function Command.new(command)
+  local command_fn = nil
+  if type(command) == 'function' then
+    command_fn = command
+  else
+    command_fn = wrap_command(command)
+  end
+  local t = {
+    _runner = command_fn
+  }
+  return setmetatable(t, Command)
+end
+
+Command.__index = function(_, f)
+  if f == 'new' then return nil end
+  return Command[f]
+end
+Command.__call = Command.run
+Command.__div = Command.pipe
+Command.__tostring = Command.tostring
+
+
+
+return {
+  command = Command.new
+}
