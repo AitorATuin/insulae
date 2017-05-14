@@ -118,24 +118,24 @@ end
 local Command = {}
 
 local function wrap_function(fn)
-  return function(parameters, stdin) return fn(parameters, stdin) end
+  return function(params, stdin) return fn(params) end
 end
 
 local function wrap_command(cmd)
-  local command_wrapper = function(parameters, stdin)
+  local command_wrapper = function(params)
     local stdout_r, stdout_w = posix.pipe()
     local stderr_r, stderr_w = posix.pipe()
     local stdin_r, stdin_w = nil
-    if stdin then
+    if (params or {}).stdin then
       stdin_r, stdin_w = posix.pipe()
-      unistd.write(stdin_w, stdin)
+      unistd.write(stdin_w, params.stdin)
       close_fds(stdin_w)
     end
     local child_pid, errmsg = fork_command(cmd, stdin_r, stdout_w, stderr_w)
     if not child_pid then 
       -- Error forking child!
       close_fds(stderr_r, stderr_w, stdout_r, stdout_w, stdin_r, stdin_w)
-      return result("", errmsg, 127)
+      return result('', errmsg, 127)
     elseif child_pid ~= 0 then
       -- Child is running!
       close_fds(stdout_w, stderr_w, stdin_r)
@@ -149,14 +149,8 @@ local function wrap_command(cmd)
   return command_wrapper
 end
 
-
 function Command.run(self, params)
-  return self._runner(parameter, self.stdin)
-end
-
-function Command.with_stdin(self, stdin)
-  self.stdin = stdin
-  return self
+    return self._runner(params, (params or {}).stdin)
 end
 
 function Command.pipe(self, other)
@@ -166,7 +160,9 @@ function Command.pipe(self, other)
   local piped_command = Command.new(function (params)
     local result = self:run()
     if result.exit_code == 0 then
-      return other:with_stdin(result.stdout):run()
+      params = params or {}
+      params.stdin = result.stdout
+      return other:run(params)
     else
       return result.stdout, result.stderr, result.exit_code
     end
@@ -205,6 +201,7 @@ function Command.new(command)
     command_fn = wrap_command(command)
   end
   local t = {
+    _run_mode = false,
     _runner = command_fn
   }
   return setmetatable(t, Command)
@@ -217,8 +214,6 @@ end
 Command.__call = Command.run
 Command.__div = Command.pipe
 Command.__tostring = Command.tostring
-
-
 
 return {
   command = Command.new
