@@ -21,7 +21,11 @@ Result.new = function(stdout, stderr, exit_code)
 end
 
 Result.tostring = function(self)
-  return sprintf(self.stdout or self.stderr or "")
+  if self.exit_code > 0 then
+    return sprintf(self.stderr)
+  else
+    return sprintf(self.stdout)
+  end
 end
 
 Result.__tostring = Result.tostring
