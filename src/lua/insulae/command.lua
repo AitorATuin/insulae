@@ -164,7 +164,6 @@ end
 
 function Command.pipe(self, other)
   if not eq_mt(self, other) then
-    print("SASS")
     return nil, 'Only commands can be piped, second argument is not an Command'
   end
   local piped_command = Command.new(function (params)
