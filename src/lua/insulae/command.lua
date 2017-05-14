@@ -9,6 +9,7 @@ local posix = require 'posix'
 local unistd = require 'posix.unistd'
 local sys_wait = require 'posix.sys.wait'
 local sys_stat = require 'posix.sys.stat'
+local result = require 'insulae.result'
 local printf = string.format
 
 --- resolves path for program `binary` using $PATH
@@ -116,6 +117,10 @@ end
 -- class table
 local Command = {}
 
+local function wrap_function(fn)
+  return function(parameters, stdin) return fn(parameters, stdin) end
+end
+
 local function wrap_command(cmd)
   local command_wrapper = function(parameters, stdin)
     local stdout_r, stdout_w = posix.pipe()
@@ -130,11 +135,7 @@ local function wrap_command(cmd)
     if not child_pid then 
       -- Error forking child!
       close_fds(stderr_r, stderr_w, stdout_r, stdout_w, stdin_r, stdin_w)
-      return {
-        stdout = "",
-        stderr = errmsg,
-        exit_code = 127
-      }
+      return result("", errmsg, 127)
     elseif child_pid ~= 0 then
       -- Child is running!
       close_fds(stdout_w, stderr_w, stdin_r)
@@ -142,11 +143,7 @@ local function wrap_command(cmd)
       local output_data = read_data(stdout_r)
       local err_data = read_data(stderr_r)
       close_fds(stdout_r, stderr_r)
-      return {
-        stdout = output_data,
-        stderr = err_data,
-        exit_code = exit_code
-      }
+      return result(output_data, err_data, exit_code)
     end
   end
   return command_wrapper
@@ -171,7 +168,7 @@ function Command.pipe(self, other)
     if result.exit_code == 0 then
       return other:with_stdin(result.stdout):run()
     else
-      return result
+      return result.stdout, result.stderr, result.exit_code
     end
   end)
 
@@ -193,10 +190,17 @@ function Command.merge(self, ...)
   return merged_command
 end
 
+--- Creates a new Command
+-- The argument `command` can be a string representing the command to execute
+-- (with optional arguments) like "ls -la" or a function which must return:
+-- (string, string, int) [(stdout, stderr, exit_code)
+--
+-- string|function: command command or function to execute
+-- treturn: Command
 function Command.new(command)
   local command_fn = nil
   if type(command) == 'function' then
-    command_fn = command
+    command_fn = wrap_function(command)
   else
     command_fn = wrap_command(command)
   end
