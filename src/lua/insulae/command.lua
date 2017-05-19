@@ -31,12 +31,35 @@ local function find_binary_path(binary)
   return nil, printf('command %s not found', binary)
 end
 
+local function prepare_params(argt)
+  local function add_index(t, field, idx)
+    local tt = (t[field] or {})
+    tt[#tt+1] = idx
+    return tt
+  end
+  -- argt[1] has always the command, ignore it
+  local p = {}
+  for i=2, #argt do
+    for capture in string.gmatch(argt[i], "${([%w-_]+)}") do
+      p[capture] = add_index(p, capture, i)
+    end
+  end
+  return setmetatable(argt, {
+    __index = function(t, v)
+      return p[v]
+    end
+  })
+end
+
 --- funtion that given a string creates a table with path and arguments ready
 -- to be used by fork_command
 -- treturn: ?table table with the path for command and the arguments for command
 local function prepare_command(command)
   local cmdt = {}
   local err = nil
+  if type(command) ~= 'function' and type(command) ~= 'string' then
+    return nil, printf('Commands can not be created from a %s', type(command))
+  end
   for item in command:gmatch('[^%s]+') do
     cmdt[#cmdt + 1] = item
   end
@@ -47,7 +70,7 @@ local function prepare_command(command)
   if not cmdt[1] then
     return nil, err
   end
-  return cmdt
+  return prepare_params(cmdt)
 end
 
 --- reads all available data for fd
@@ -107,6 +130,18 @@ function eq_mt(obj1, obj2)
   return getmetatable(obj1) == getmetatable(obj2)
 end
 
+-- Join params
+function merge_params(params1, params2)
+  local t = {}
+  for k, v in pairs(params1) do
+    t[k] = v
+  end
+  for k, v in pairs(params2) do
+    t[k] = v
+  end
+  return t
+end
+
 ------------
 -- command
 -- command class wrapping shell commands
@@ -122,13 +157,17 @@ local function wrap_function(fn)
 end
 
 local function wrap_command(cmd)
-  local command_wrapper = function(params)
+  local argt, errmsg = prepare_command(cmd)
+  if not argt then
+    return nil, errmsg
+  end
+  local command_wrapper = function(curernt_patams, params)
     local stdout_r, stdout_w = posix.pipe()
     local stderr_r, stderr_w = posix.pipe()
     local stdin_r, stdin_w = nil
-    if (params or {}).stdin then
+    if (current_params or {}).stdin then
       stdin_r, stdin_w = posix.pipe()
-      unistd.write(stdin_w, params.stdin)
+      unistd.write(stdin_w, current_params.stdin)
       close_fds(stdin_w)
     end
     local child_pid, errmsg = fork_command(cmd, stdin_r, stdout_w, stderr_w)
@@ -146,18 +185,18 @@ local function wrap_command(cmd)
       return result(output_data, err_data, exit_code)
     end
   end
-  return command_wrapper
+  return command_wrapper, argt 
 end
 
 function Command.run(self, params)
-    return self._runner(params, (params or {}).stdin)
+    return self._runner(params)
 end
 
 function Command.pipe(self, other)
   if not eq_mt(self, other) then
     return nil, 'Only commands can be piped, second argument is not an Command'
   end
-  local piped_command = Command.new(function (params)
+  local command_fn = function (params)
     local result = self:run()
     if result.exit_code == 0 then
       params = params or {}
@@ -166,24 +205,23 @@ function Command.pipe(self, other)
     else
       return result.stdout, result.stderr, result.exit_code
     end
-  end)
+  end
 
-  return piped_command
+  local params = merge_params(self._params, other._params)
+
+  return Command.new(function() return piped_command, params end)
 end
 
 function Command.tostring(self)
-  return printf("Command")
-end
-
-function Command.merge(self, ...)
-  error 'No implemented'
-  -- TODO: Check that commands are valid Commands
-  local commands = {...}
-  local merged_command = Command.new(function(params)
-    --- recursive coroutine gathering all the stdout/stderr from other commands
-  end)
-
-  return merged_command
+  if not self._params or not self._params[1] then
+    return printf('Command: %s', self._runner)
+  else
+    local cmd = self._params[1][1]
+    for i=2, #cmd do
+      cmd = printf("%s %s", cmd, self._params[1][i])
+    end
+    return printf("Command %s", self._params[1][1])
+  end
 end
 
 --- Creates a new Command
@@ -193,16 +231,25 @@ end
 --
 -- string|function: command command or function to execute
 -- treturn: Command
-function Command.new(command)
+function Command.new(command, params)
   local command_fn = nil
   if type(command) == 'function' then
-    command_fn = wrap_function(command)
+    -- If command is a function we can pass optionaly a list of params
+    command_fn = command
   else
-    command_fn = wrap_command(command)
+    -- Function to run the command and parameters to resolve before
+    -- running th command
+    command_fn, params = wrap_command(command)
+  end
+  if not command_fn then
+    -- params contains error string in case of error
+    return nil, params
   end
   local t = {
-    _run_mode = false,
-    _runner = command_fn
+    _runner = command_fn,
+    _params = {
+      params
+    }
   }
   return setmetatable(t, Command)
 end
@@ -212,7 +259,11 @@ Command.__index = function(_, f)
   return Command[f]
 end
 Command.__call = Command.run
-Command.__div = Command.pipe
+if _VERSION == 'Lua 5.3' then
+  Command.__bor = Command.pipe
+else
+  Command.__div = Command.pipe
+end
 Command.__tostring = Command.tostring
 
 return {
