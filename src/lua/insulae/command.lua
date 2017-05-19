@@ -10,7 +10,7 @@ local unistd = require 'posix.unistd'
 local sys_wait = require 'posix.sys.wait'
 local sys_stat = require 'posix.sys.stat'
 local result = require 'insulae.result'
-local printf = string.format
+local sprintf = string.format
 
 --- resolves path for program `binary` using $PATH
 -- treturn: ?string|nil path for an executable program `binary`
@@ -28,7 +28,7 @@ local function find_binary_path(binary)
       return candidate_path
     end
   end
-  return nil, printf('command %s not found', binary)
+  return nil, sprintf('command %s not found', binary)
 end
 
 local function prepare_params(argt)
@@ -58,7 +58,7 @@ local function prepare_command(command)
   local cmdt = {}
   local err = nil
   if type(command) ~= 'function' and type(command) ~= 'string' then
-    return nil, printf('Commands can not be created from a %s', type(command))
+    return nil, sprintf('Commands can not be created from a %s', type(command))
   end
   for item in command:gmatch('[^%s]+') do
     cmdt[#cmdt + 1] = item
@@ -214,13 +214,13 @@ end
 
 function Command.tostring(self)
   if not self._params or not self._params[1] then
-    return printf('Command: %s', self._runner)
+    return sprintf('Command: %s', self._runner)
   else
     local cmd = self._params[1][1]
     for i=2, #cmd do
-      cmd = printf("%s %s", cmd, self._params[1][i])
+      cmd = sprintf("%s %s", cmd, self._params[1][i])
     end
-    return printf("Command %s", self._params[1][1])
+    return sprintf("Command %s", self._params[1][1])
   end
 end
 
