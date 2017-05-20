@@ -11,6 +11,19 @@ local sys_wait = require 'posix.sys.wait'
 local sys_stat = require 'posix.sys.stat'
 local result = require 'insulae.result'
 local sprintf = string.format
+local inspect = require 'inspect'
+
+local function copy_table(orig_t)
+  local new_t = {}
+  for i, v in pairs(orig_t) do
+    if type(v) == 'table' then
+      new_t[i] = setmetatable(copy_table(v), copy_table(getmetatable(v)))
+    else
+      new_t[i] = v
+    end
+  end
+  return new_t
+end
 
 --- resolves path for program `binary` using $PATH
 -- treturn: ?string|nil path for an executable program `binary`
@@ -47,6 +60,9 @@ local function prepare_params(argt)
   return setmetatable(argt, {
     __index = function(t, v)
       return p[v]
+    end,
+    __call = function(_)
+      return p
     end
   })
 end
@@ -132,12 +148,9 @@ end
 
 -- Join params
 function merge_params(params1, params2)
-  local t = {}
-  for k, v in pairs(params1) do
-    t[k] = v
-  end
+  local t = copy_table(params1)
   for k, v in pairs(params2) do
-    t[k] = v
+    t[#t+1] = v
   end
   return t
 end
@@ -185,7 +198,7 @@ local function wrap_command(cmd)
       return result(output_data, err_data, exit_code)
     end
   end
-  return command_wrapper, argt 
+  return command_wrapper, {argt}
 end
 
 function Command.run(self, params)
@@ -208,8 +221,25 @@ function Command.pipe(self, other)
   end
 
   local params = merge_params(self._params, other._params)
+  return Command.new(command_fn, params)
+end
 
-  return Command.new(function() return piped_command, params end)
+function Command.number_of_commands(self)
+  return #self._params
+end
+
+function Command.parameters(self)
+  local params = {}
+  local _params = {}
+  for _, command_params in ipairs(self._params) do
+    for p in pairs(command_params()) do
+      if not _params[p] then
+        _params[p] = true
+        params[#params+1] = p
+      end
+    end
+  end
+  return params
 end
 
 function Command.tostring(self)
@@ -247,9 +277,7 @@ function Command.new(command, params)
   end
   local t = {
     _runner = command_fn,
-    _params = {
-      params
-    }
+    _params = params
   }
   return setmetatable(t, Command)
 end
@@ -259,6 +287,11 @@ Command.__index = function(_, f)
   return Command[f]
 end
 Command.__call = Command.run
+--[[
+  bitwise operators can not return error strings in case of error, they just
+  return nil.
+  TODO: Should this be wrapper calling error in case of error?
+--]]
 if _VERSION == 'Lua 5.3' then
   Command.__bor = Command.pipe
 else
