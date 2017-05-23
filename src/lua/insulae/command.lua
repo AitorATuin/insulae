@@ -243,14 +243,17 @@ function Command.parameters(self)
 end
 
 function Command.tostring(self)
-  if not self._params or not self._params[1] then
-    return sprintf('Command: %s', self._runner)
-  else
-    local cmd = self._params[1][1]
-    for i=2, #cmd do
-      cmd = sprintf("%s %s", cmd, self._params[1][i])
+  local function targs_and_to_string(targs)
+    local cmd = string.match(targs[1], '.+/([^/]+)$')
+    for i=2, #targs do
+      cmd = sprintf("%s %s", cmd, targs[i])
     end
-    return sprintf("Command %s", self._params[1][1])
+    return cmd
+  end
+  if not self._params or not self._params[1] then
+    return sprintf('%s', tostring(self._runner))
+  else
+    return targs_and_to_string(self._params[1])
   end
 end
 
