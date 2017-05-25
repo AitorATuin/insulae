@@ -103,7 +103,7 @@ describe('insulae.command specs', function()
       local cmd2 = cmd('some_other_command param2')
       assert.are.equals(tostring(cmd1), 'some_command -a -vv param1 param2')
       assert.are.equals(tostring(cmd2), 'some_other_command param2')
-      assert.are.equals(tostring(cmd_fun_1), 'some_other_command param2')
+      assert.are.equals(tostring(cmd_fun_1), 'fun')
     end)
 
     it('#piped commands can show a string representation without arguments', function ()
