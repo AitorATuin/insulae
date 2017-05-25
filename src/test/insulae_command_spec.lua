@@ -58,8 +58,11 @@ describe('insulae.command specs', function()
 
     -- Define some command to test later the parameters composition
     mock_path('posix.sys.stat.lstat', mock_lstat('exec'), mocked_modules)
-    cmd_params_1 = cmd('cmd1 ${cmd1_args} ${file}')
-    cmd_params_2 = cmd('cmd2 ${file} ${cmd2_args}')
+    cmd_params_1_str = 'cmd1 ${cmd1_args} ${file}'
+    cmd_params_2_str = 'cmd2 ${file} ${cmd2_args}'
+    cmd_params_1 = cmd(cmd_params_1_str)
+    cmd_params_2 = cmd(cmd_params_2_str)
+    cmd_fun_1    = cmd(function () end)
   end)
 
   -- Reset all mocks after each test
@@ -100,17 +103,27 @@ describe('insulae.command specs', function()
       local cmd2 = cmd('some_other_command param2')
       assert.are.equals(tostring(cmd1), 'some_command -a -vv param1 param2')
       assert.are.equals(tostring(cmd2), 'some_other_command param2')
+      assert.are.equals(tostring(cmd_fun_1), 'some_other_command param2')
     end)
 
-    it('piped commands can show a string representation', function ()
+    it('#piped commands can show a string representation without arguments', function ()
       mock_path('posix.sys.stat.lstat', mock_lstat('exec'), mocked_modules)
-      local cmd1 = cmd('some_command -a -vv param1 param2')
-      local cmd2 = function() end
-      local cmd2 = cmd('some_other_command param2')
       local cmd1_str = 'some_command -a -vv param1 param2'
-      local cmd2_str = 'Command: function'
-      local cmd3_str = 'some_other_command param2'
-      assert.are.equals(tostring(piped), sprintf('%s | %s | %s', cmd1_str, cmd2_str, cmd3_str))
+      local cmd2_str = 'some_other_command param2'
+      local cmd3 = cmd(function () end)
+      local cmd1 = cmd(cmd1_str)
+      local cmd2 = cmd(cmd2_str)
+      local piped1 = cmd1 | cmd2 | cmd3
+      local piped2 = cmd3 | cmd1 | cmd2
+      local piped3 = cmd1 | cmd3 | cmd2 | cmd3
+      assert.are.equals(tostring(piped1), sprintf('%s | %s | fun', cmd1_str, cmd2_str))
+      assert.are.equals(tostring(piped2), sprintf('fun | %s | %s', cmd1_str, cmd2_str))
+      assert.are.equals(tostring(piped3), sprintf('%s | fun | %s | fun', cmd1_str, cmd2_str))
+    end)
+
+    it('#piped commands can show a string representation showing unresolved arguments', function ()
+      local piped = cmd_params_1 | cmd_fun_1 | cmd_params_2
+      assert.are.equals(tostring(piped), sprintf('%s | fun | %s', cmd_params_1_str, cmd_params_2_str))
     end)
 
     it('create a command from a function', function ()

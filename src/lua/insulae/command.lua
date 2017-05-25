@@ -17,7 +17,13 @@ local function copy_table(orig_t)
   local new_t = {}
   for i, v in pairs(orig_t) do
     if type(v) == 'table' then
-      new_t[i] = setmetatable(copy_table(v), copy_table(getmetatable(v)))
+      local t_cp, mt_cp = copy_table(v), nil
+      local mt = getmetatable(v)
+      if mt then
+        new_t[i] = setmetatable(copy_table(v), copy_table(mt))
+      else
+        new_t[i] = copy_table(v)
+      end
     else
       new_t[i] = v
     end
@@ -243,18 +249,25 @@ function Command.parameters(self)
 end
 
 function Command.tostring(self)
-  local function targs_and_to_string(targs)
-    local cmd = string.match(targs[1], '.+/([^/]+)$')
+  local function targs_to_string(targs, default_value)
+    local cmd = string.match(targs[1] or "", '.+/([^/]+)$')
     for i=2, #targs do
       cmd = sprintf("%s %s", cmd, targs[i])
     end
-    return cmd
+    return cmd or default_value
   end
+
+  local cmd
   if not self._params or not self._params[1] then
-    return sprintf('%s', tostring(self._runner))
+    cmd = sprintf('%s', tostring(self._runner))
   else
-    return targs_and_to_string(self._params[1])
+    -- it must exist at least one command!
+    cmd = targs_to_string(self._params[1], 'fun')
+    for i=2, #self._params do
+      cmd = sprintf('%s | %s', cmd, targs_to_string(self._params[i], 'fun'))
+    end
   end
+  return cmd
 end
 
 --- Creates a new Command
@@ -280,7 +293,7 @@ function Command.new(command, params)
   end
   local t = {
     _runner = command_fn,
-    _params = params
+    _params = params or {{}}
   }
   return setmetatable(t, Command)
 end
